@@ -48,8 +48,6 @@ import threading
 import multiprocessing
 import queue
 
-from numba import njit
-
 # you may need to install these python modules
 try:
     import vxi11            # required
@@ -195,42 +193,8 @@ def fill_queue(sock_udp, q_data, count_packets, bytes_per_packet):
     """
     for _ in range(count_packets):
         buf, _ = sock_udp.recvfrom(bytes_per_packet)
-
-        #print(buf)
-        #buf is bytes
-        # _ is address
-        q_data.put((buf, time.time_ns()))
-        #print(q_data.get())
+        q_data.put(buf)
     cleanup_ifcs()
-
-#@njit(parallel=True)
-def average_packet(buf, fmt_unpk, prev_pkt_cntr):
-    """ Unpack the header and data froma packet, checking for dropped packets.
-        return the AVERAGED data of the packet, the header, the number of packets missed, and the current packet number.
-        Only the packet counter is checked - other, possibly important information in the header
-        (such as overload, unlock status, data type, streamed variables, and sample rate)
-        are ignored.
-    """
-    # convert to floats or ints after skipping 4 bytes of header
-    vals = list(unpack_from(fmt_unpk, buf, 4))
-    #need to grab all evens and all odds
-    # i.e. all X values
-    odds = vals[::2]
-    # i.e. all Y values
-    evens = vals[1::2]
-    vals = [sum(odds) / len(odds), sum(evens) / len(evens)]
-    vals.insert(0,time.time_ns())
-    head = unpack_from('>I', buf)[0]            # convert the header to an 32 bit int
-    cntr = head & 0xff                         # extract the packet counter from the header
-    # check for missed packets
-    # if this isn't the 1st and the difference isn't 1 then
-    if prev_pkt_cntr is not None and ((prev_pkt_cntr+1)&0xff) != cntr:
-        n_dropped = cntr - prev_pkt_cntr                    # calculate how many we missed
-        if n_dropped < 0:
-            n_dropped += 0xff
-    else:
-        n_dropped = 0
-    return vals, head, n_dropped, cntr
 
 
 def process_packet(buf, fmt_unpk, prev_pkt_cntr):
@@ -251,9 +215,6 @@ def process_packet(buf, fmt_unpk, prev_pkt_cntr):
         n_dropped = cntr - prev_pkt_cntr                    # calculate how many we missed
         if n_dropped < 0:
             n_dropped += 0xff
-        '''
-        If packet is lost, generate and send n_dropped NaN packets to list, i.e. figure out where they're lost and populate them in
-        '''
     else:
         n_dropped = 0
     return vals, head, n_dropped, cntr
@@ -272,9 +233,7 @@ def empty_queue(q_data, q_drop, count_packets, bytes_per_packet, fmt_unpk, s_prt
     lst_stream = []
     count_vars = len(s_channels)
     for i in range(count_packets):
-        (buf, time_stamp) = q_data.get()
-        print(time_stamp) # (buf, timestamp) -> queue -> (buf, timestamp) [unpacked]
-        #vals, _, n_dropped, prev_pkt_cntr = average_packet(buf, fmt_unpk, prev_pkt_cntr)
+        buf = q_data.get()
         vals, _, n_dropped, prev_pkt_cntr = process_packet(buf, fmt_unpk, prev_pkt_cntr)
         lst_stream += [vals]
         if n_dropped:
@@ -370,7 +329,6 @@ def test(opts):     #pylint: disable=too-many-locals, too-many-statements
         for i in range(total_packets):
             # .recvfrom "blocks" program execution until all the bytes have been received.
             buf, _ = the_udp_socket.recvfrom(bytes_per_pkt+4)
-            #vals, head, n_dropped, prev_pkt_cntr = average_packet(buf, fmt_unpk, prev_pkt_cntr)
             vals, head, n_dropped, prev_pkt_cntr = process_packet(buf, fmt_unpk, prev_pkt_cntr)
             lst_stream += [vals] #vals include hardcode timestamp
             headers += [head]
@@ -393,10 +351,10 @@ if __name__ == '__main__':
     #dict_options = docopt.docopt(USE_STR, version='0.0.2')  #pylint: disable=invalid-name
     dict_options1 = {
         '--address': '10.0.0.3',
-        '--duration': 12,
-        '--file': 'thread1.csv',
+        '--duration': 120,
+        '--file': 'thread1short.csv',
         '--ints':False,
-        '--length': 0,
+        '--length': 3,
         '--port': 1865,
         '--rate': 100000,
         '--silent':False,
@@ -405,26 +363,25 @@ if __name__ == '__main__':
     }
     dict_options2 = {
         '--address': '10.0.0.4',
-        '--duration': 12,
-        '--file': 'thread2.csv',
+        '--duration': 120,
+        '--file': 'thread2short.csv',
         '--ints': False,
-        '--length': 0,
+        '--length': 3,
         '--port': 1866,
         '--rate': 100000,
         '--silent': False,
         '--thread': True,
         '--vars': 'XY'
     }
-    test(dict_options1)
-    #process1 = multiprocessing.Process(target=test, args=(dict_options1,))
-    #process2 = multiprocessing.Process(target=test, args=(dict_options2,))
-    #process1.start()
+    process1 = multiprocessing.Process(target=test, args=(dict_options1,))
+    process2 = multiprocessing.Process(target=test, args=(dict_options2,))
+    process1.start()
     print("process1 started")
     #time.sleep(2)
-    #process2.start()
-    #print("process2 started")
-    #process1.join()
-    #process2.join()
+    process2.start()
+    print("process2 started")
+    process1.join()
+    process2.join()
     print("simultaneous threads are done!")
     #cleanup_ifcs() #commenting out to see if there are erros
     print("cleaned up")

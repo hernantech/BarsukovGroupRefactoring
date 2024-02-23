@@ -1,7 +1,8 @@
-import visa
+import pyvisa as visa
 import time
 import random
-import socket
+import socketac
+
 import zmq
 import imp
 import os
