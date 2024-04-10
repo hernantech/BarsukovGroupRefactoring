@@ -13,6 +13,7 @@ Notes: This class is to instantiate the supervisor class
 *
 
 '''
+import pyvisa
 
 
 class Supervisor:
@@ -21,10 +22,19 @@ class Supervisor:
         self.options = options_dict
         #by default setting validation to false:
         self.ready = False
-        self.__test__(self.options)
+        self.__test_options__(self.options)
         '''some more stuff'''
 
-    def __test__(self):
+    def __test_options__(self):
+        '''Grab all resources'''
+        resource_list = pyvisa.ResourceManager().list_resources()
+
+        ''' get key,value pair from "requested_eq_list" node of dictionary, getting all key-value pairs of eq_name: gpib_address'''
+        for equipment, gpib_address in self.options["requested_equipment_list"].keys(),self.options["requested_equipment_list"].values() :
+            if gpib_address in resource_list:
+                print(equipment + "is visible")
+            else:
+                print(equipment + "is not detected, please connect and/or initialize equipment in MAX")
         if we_fail_the_test
             return False
         if we_pass_the_test
